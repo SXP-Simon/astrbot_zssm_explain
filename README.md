@@ -7,7 +7,7 @@
 ## 功能概览
 
 - 文本解释  
-  - 指令 `/zssm` 或 关键词 `zssm` 触发，对携带的文本进行简洁说明。  
+  - 关键词 `zssm/何意味/hyw` 触发，对携带的文本进行简洁说明。  
   - 支持「zssm + 文本」直接解释当前消息文本，无需回复。
 
 - 图片 / 图文消息解释  
@@ -107,3 +107,4 @@
 - [Reina](https://github.com/Ri-Nai) 本插件参考了他的json消息处理代码并完善了json卡片消息的处理
 - [氕氙](https://github.com/piexian) 感谢稀有气体同学的PR
 - [プリン](https://github.com/zouyonghe) 感谢热心群u的PR
+- [回归天空](https://github.com/SXP-Simon) 感谢回归天空同学的PR
