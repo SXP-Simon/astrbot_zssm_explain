@@ -108,7 +108,7 @@ DEFAULT_FORWARD_VIDEO_MAX_COUNT = 2
 @register(
     "astrbot_zssm_explain",
     "薄暝",
-    'zssm，发送zssm来让bot解释近乎全类型的消息！',
+    "zssm，发送zssm来让bot解释近乎全类型的消息！",
     "v3.9.16",
     "https://github.com/xiaoxi68/astrbot_zssm_explain",
 )
@@ -655,7 +655,7 @@ class ZssmExplain(Star):
             return False
         t = text.strip()
         # 忽略常见前缀：/ ! ！ . 。 、 ， - 等，匹配起始处 zssm
-        if re.match(r"^[\s/!！。\.、，\-]*zssm(\s|$)", t, re.I):
+        if re.match(r"^[\s/!！。\.、，\-]*(zssm|hyw|何意味)(\s|$)", t, re.I):
             return True
         return False
 
@@ -709,7 +709,7 @@ class ZssmExplain(Star):
         if not isinstance(text, str):
             return ""
         t = text.strip()
-        m = re.match(r"^[\s/!！。\.、，\-]*zssm(?:\s+(.+))?$", t, re.I)
+        m = re.match(r"^[\s/!！。\.、，\-]*(?:zssm|hyw|何意味)(?:\s+(.+))?$", t, re.I)
         if not m:
             return ""
         content = (m.group(1) or "").strip()
@@ -1429,7 +1429,7 @@ class ZssmExplain(Star):
             except Exception:
                 pass
 
-    @filter.command("zssm", alias={"知识说明", "解释"})
+    @filter.command("zssm", alias={"知识说明", "解释", "hyw", "何意味"})
     async def zssm(self, event: AstrMessageEvent):
         """解释被回复消息：/zssm 或关键词触发；若携带内容则直接解释该内容，否则按回复消息逻辑。"""
         cleanup_paths: List[str] = []
@@ -1518,9 +1518,9 @@ class ZssmExplain(Star):
             at_me = False
         if isinstance(head, str) and head.strip():
             hs = head.strip()
-            if re.match(r"^\s*/\s*zssm(\s|$)", hs, re.I):
+            if re.match(r"^\s*/\s*(zssm|hyw|何意味)(\s|$)", hs, re.I):
                 return
-            if at_me and re.match(r"^zssm(\s|$)", hs, re.I):
+            if at_me and re.match(r"^(zssm|hyw|何意味)(\s|$)", hs, re.I):
                 return
             if self._is_zssm_trigger(hs):
                 async for r in self.zssm(event):
@@ -1533,9 +1533,9 @@ class ZssmExplain(Star):
             text = getattr(event, "message_str", "") or ""
         if isinstance(text, str) and text.strip():
             t = text.strip()
-            if re.match(r"^\s*/\s*zssm(\s|$)", t, re.I):
+            if re.match(r"^\s*/\s*(zssm|hyw|何意味)(\s|$)", t, re.I):
                 return
-            if at_me and re.match(r"^zssm(\s|$)", t, re.I):
+            if at_me and re.match(r"^(zssm|hyw|何意味)(\s|$)", t, re.I):
                 return
             if self._is_zssm_trigger(t):
                 async for r in self.zssm(event):
