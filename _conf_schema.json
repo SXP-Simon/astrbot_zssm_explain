@@ -31,6 +31,12 @@
     "default": true,
     "hint": "关闭后仅响应 /zssm 指令，不再通过纯文本“zssm”自动触发"
   },
+  "enable_heyiwei": {
+    "description": "是否开启“何意味”",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后将响应“hyw”、“何意味”及其命令形式。若关闭，则仅响应“zssm”"
+  },
   "enable_empty_zssm_prompt": {
     "description": "空输入时是否提示",
     "type": "bool",
