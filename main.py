@@ -653,16 +653,29 @@ class ZssmExplain(Star):
         hyw_enabled = self._get_conf_bool(HE_YI_WEI_ENABLE_KEY, True)
         kw_enabled = self._get_conf_bool(KEYWORD_ZSSM_ENABLE_KEY, True)
 
-        # 1. 如果不是显式指令，且关闭了关键词触发，直接拦截
-        if not is_command and not kw_enabled:
-            return False
+        # 1. 关键词自动触发逻辑判定
+        # 检查是否有显式的指令前缀符号 (如 / ! . 等)
+        prefix_match = re.match(r"^\s*([/!！。\.、，\-]+)", t)
+        has_prefix = bool(prefix_match)
+
+        if not kw_enabled:
+            # 如果关闭了关键词触发，则必须有显式的前缀符号才允许通过
+            if not has_prefix:
+                logger.debug(
+                    f"zssm_explain: blocked keyword trigger (kw_off, no_prefix): {t}"
+                )
+                return False
 
         # 2. 正则匹配触发词
         m = re.match(r"^[\s/!！。\.、，\-]*(zssm|hyw|何意味)(\s|$)", t, re.I)
         if not m:
+            logger.debug(f"zssm_explain: no trigger match: {t}")
             return False
 
         keyword = m.group(1).lower()
+        logger.debug(
+            f"zssm_explain: trigger found: {keyword} (prefix={has_prefix}, is_command={is_command})"
+        )
         # 3. 如果是何意味别名，但关闭了何意味开关，拦截
         if keyword in ("hyw", "何意味") and not hyw_enabled:
             return False
@@ -670,29 +683,42 @@ class ZssmExplain(Star):
         return True
 
     @staticmethod
-    def _first_plain_head_text(chain: List[object]) -> str:
-        """返回消息链中最靠前且非空的 Plain 文本。忽略 Reply、At 等非文本段。"""
+    def _first_plain_head_text(chain: list[object]) -> str:
+        """返回消息链中最靠前且非空的 Plain 文本。支持 Comp 对象和 raw dict。忽略 Reply、At 等非文本段。"""
         if not isinstance(chain, list):
             return ""
         for seg in chain:
             try:
+                # 支持 Comp 对象
                 if isinstance(seg, Comp.Plain):
                     txt = getattr(seg, "text", None)
                     if isinstance(txt, str) and txt.strip():
                         return txt
+                # 支持 raw dict (OneBot/aiocqhttp)
+                elif isinstance(seg, dict):
+                    if seg.get("type") in ("text", "plain"):
+                        txt = seg.get("data", {}).get("text")
+                        if isinstance(txt, str) and txt.strip():
+                            return txt
             except (AttributeError, TypeError):
                 continue
         return ""
 
     @staticmethod
-    def _chain_has_at_me(chain: List[object], self_id: str) -> bool:
-        """检测消息链是否 @ 了当前 Bot。"""
+    def _chain_has_at_me(chain: list[object], self_id: str) -> bool:
+        """检测消息链是否 @ 了当前 Bot。支持 Comp 对象和 raw dict。"""
         if not isinstance(chain, list):
             return False
         for seg in chain:
             try:
+                # 支持 Comp 对象
                 if isinstance(seg, Comp.At):
                     qq = getattr(seg, "qq", None)
+                    if qq is not None and str(qq) == str(self_id):
+                        return True
+                # 支持 raw dict
+                elif isinstance(seg, dict) and seg.get("type") == "at":
+                    qq = seg.get("data", {}).get("qq")
                     if qq is not None and str(qq) == str(self_id):
                         return True
             except (AttributeError, TypeError):
@@ -1454,9 +1480,15 @@ class ZssmExplain(Star):
             if self._already_handled(event):
                 return
 
-            # 如果是通过指令入口进来，检查触发词是否合法（如关闭 hyw 时拦截 /hyw）
-            head_text = self._first_plain_head_text(self._safe_get_chain(event))
-            if head_text and not self._is_zssm_trigger(head_text, is_command=True):
+            # 触发校验：确保开启了对应开关，且在关闭关键词触发时必须带有指令前缀
+            chain = self._safe_get_chain(event)
+            head_text = self._first_plain_head_text(chain)
+            # 如果首个文本没搜到，回退到整体字符串
+            check_text = head_text or (getattr(event, "message_str", "") or "")
+            if not self._is_zssm_trigger(check_text, is_command=True):
+                logger.debug(
+                    f"zssm_explain: zssm command filter blocked execution. check_text: {check_text}"
+                )
                 return
 
             inline = self._get_inline_content(event)
