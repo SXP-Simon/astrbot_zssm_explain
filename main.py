@@ -1444,13 +1444,32 @@ class ZssmExplain(Star):
             if self._already_handled(event):
                 return
 
-            if not self._get_conf_bool(HE_YI_WEI_ENABLE_KEY, True):
-                # 更加严谨地通过首个文本段判断触发词，避开回复等 CQ 码的干扰
-                head_text = self._first_plain_head_text(self._safe_get_chain(event))
-                if head_text and re.match(
-                    r"^[\s/!！。\.、，\-]*(hyw|何意味)(\s|$)", head_text.strip(), re.I
+            kw_enabled = self._get_conf_bool(KEYWORD_ZSSM_ENABLE_KEY, True)
+            hyw_enabled = self._get_conf_bool(HE_YI_WEI_ENABLE_KEY, True)
+
+            chain = self._safe_get_chain(event)
+            head_text = self._first_plain_head_text(chain)
+            if head_text:
+                hs = head_text.strip()
+                # 1. 何意味总开关：若关闭且当前是 hyw/何意味 触发，则拦截
+                if not hyw_enabled and re.match(
+                    r"^[\s/!！。\.、，\-]*(hyw|何意味)(\s|$)", hs, re.I
                 ):
                     return
+                # 2. 关键词自动触发开关：若关闭且当前是纯文本触发（无前缀符号且非 @Bot）
+                if not kw_enabled:
+                    # 检查是否有显式的指令前缀符号
+                    has_prefix = bool(re.match(r"^\s*[/!！。\.、，\-]+", hs))
+                    # 检查是否 @ 了 Bot
+                    at_me = False
+                    try:
+                        self_id = event.get_self_id()
+                        at_me = self._chain_has_at_me(chain, self_id)
+                    except Exception:
+                        at_me = False
+
+                    if not has_prefix and not at_me:
+                        return
 
             inline = self._get_inline_content(event)
             enable_url = self._get_conf_bool(
@@ -1532,9 +1551,12 @@ class ZssmExplain(Star):
 
         if isinstance(head, str) and head.strip():
             hs = head.strip()
-            # 这里的 hs 是首个 Plain 文本块。如果它匹配了 (zssm|hyw|何意味) 且带有前缀，则视为指令，由 zssm 指令处理器处理
-            cmd_pattern = r"^[\s/!！。\.、，\-]*(zssm" + hyw_pattern + r")(\s|$)"
-            if re.match(cmd_pattern, hs, re.I):
+            # 这里的 hs 是首个 Plain 文本块。
+            # 如果它匹配了 (zssm|hyw|何意味) 且带有显式前缀，则视为指令，由 zssm 指令处理器处理，此处跳过以避免双重响应
+            cmd_prefix_pattern = (
+                r"^\s*[/!！。\.、，\-]+(zssm" + hyw_pattern + r")(\s|$)"
+            )
+            if re.match(cmd_prefix_pattern, hs, re.I):
                 return
             if at_me and re.match(r"^(zssm" + hyw_pattern + r")(\s|$)", hs, re.I):
                 return
@@ -1549,8 +1571,10 @@ class ZssmExplain(Star):
             text = getattr(event, "message_str", "") or ""
         if isinstance(text, str) and text.strip():
             t = text.strip()
-            cmd_pattern = r"^[\s/!！。\.、，\-]*(zssm" + hyw_pattern + r")(\s|$)"
-            if re.match(cmd_pattern, t, re.I):
+            cmd_prefix_pattern = (
+                r"^\s*[/!！。\.、，\-]+(zssm" + hyw_pattern + r")(\s|$)"
+            )
+            if re.match(cmd_prefix_pattern, t, re.I):
                 return
             if at_me and re.match(r"^(zssm" + hyw_pattern + r")(\s|$)", t, re.I):
                 return
