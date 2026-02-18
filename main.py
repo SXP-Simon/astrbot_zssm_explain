@@ -1445,11 +1445,11 @@ class ZssmExplain(Star):
                 return
 
             if not self._get_conf_bool(HE_YI_WEI_ENABLE_KEY, True):
-                try:
-                    text_str = event.get_message_str()
-                except Exception:
-                    text_str = ""
-                if text_str and re.match(r"^\s*/\s*(hyw|何意味)(\s|$)", text_str, re.I):
+                # 更加严谨地通过首个文本段判断触发词，避开回复等 CQ 码的干扰
+                head_text = self._first_plain_head_text(self._safe_get_chain(event))
+                if head_text and re.match(
+                    r"^[\s/!！。\.、，\-]*(hyw|何意味)(\s|$)", head_text.strip(), re.I
+                ):
                     return
 
             inline = self._get_inline_content(event)
@@ -1532,7 +1532,9 @@ class ZssmExplain(Star):
 
         if isinstance(head, str) and head.strip():
             hs = head.strip()
-            if re.match(r"^\s*/\s*(zssm" + hyw_pattern + r")(\s|$)", hs, re.I):
+            # 这里的 hs 是首个 Plain 文本块。如果它匹配了 (zssm|hyw|何意味) 且带有前缀，则视为指令，由 zssm 指令处理器处理
+            cmd_pattern = r"^[\s/!！。\.、，\-]*(zssm" + hyw_pattern + r")(\s|$)"
+            if re.match(cmd_pattern, hs, re.I):
                 return
             if at_me and re.match(r"^(zssm" + hyw_pattern + r")(\s|$)", hs, re.I):
                 return
@@ -1547,7 +1549,8 @@ class ZssmExplain(Star):
             text = getattr(event, "message_str", "") or ""
         if isinstance(text, str) and text.strip():
             t = text.strip()
-            if re.match(r"^\s*/\s*(zssm" + hyw_pattern + r")(\s|$)", t, re.I):
+            cmd_pattern = r"^[\s/!！。\.、，\-]*(zssm" + hyw_pattern + r")(\s|$)"
+            if re.match(cmd_pattern, t, re.I):
                 return
             if at_me and re.match(r"^(zssm" + hyw_pattern + r")(\s|$)", t, re.I):
                 return
