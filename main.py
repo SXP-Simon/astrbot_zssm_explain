@@ -69,6 +69,7 @@ URL_DETECT_ENABLE_KEY = "enable_url_detect"
 URL_FETCH_TIMEOUT_KEY = "url_timeout_sec"
 URL_MAX_CHARS_KEY = "url_max_chars"
 KEYWORD_ZSSM_ENABLE_KEY = "enable_keyword_zssm"
+HE_YI_WEI_ENABLE_KEY = "enable_heyiwei"
 EMPTY_ZSSM_PROMPT_ENABLE_KEY = "enable_empty_zssm_prompt"
 GROUP_LIST_MODE_KEY = "group_list_mode"
 GROUP_LIST_KEY = "group_list"
@@ -105,13 +106,6 @@ DEFAULT_FORWARD_VIDEO_KEYFRAME_ENABLE = True
 DEFAULT_FORWARD_VIDEO_MAX_COUNT = 2
 
 
-@register(
-    "astrbot_zssm_explain",
-    "薄暝",
-    'zssm，发送zssm来让bot解释近乎全类型的消息！',
-    "v3.9.16",
-    "https://github.com/xiaoxi68/astrbot_zssm_explain",
-)
 class ZssmExplain(Star):
     def __init__(self, context: Context, config: Optional[Dict[str, Any]] = None):
         super().__init__(context)
@@ -649,13 +643,17 @@ class ZssmExplain(Star):
 
     # 文本与图片解析等通用工具已迁移至 message_utils / llm_client / video_utils 模块
 
-    @staticmethod
-    def _is_zssm_trigger(text: str) -> bool:
+    def _is_zssm_trigger(self, text: str) -> bool:
         if not isinstance(text, str):
             return False
         t = text.strip()
+        hyw_enabled = self._get_conf_bool(HE_YI_WEI_ENABLE_KEY, True)
         # 忽略常见前缀：/ ! ！ . 。 、 ， - 等，匹配起始处 zssm
-        if re.match(r"^[\s/!！。\.、，\-]*zssm(\s|$)", t, re.I):
+        pattern = r"^[\s/!！。\.、，\-]*(zssm"
+        if hyw_enabled:
+            pattern += r"|hyw|何意味"
+        pattern += r")(\s|$)"
+        if re.match(pattern, t, re.I):
             return True
         return False
 
@@ -703,13 +701,17 @@ class ZssmExplain(Star):
             pass
         return False
 
-    @staticmethod
-    def _strip_trigger_and_get_content(text: str) -> str:
+    def _strip_trigger_and_get_content(self, text: str) -> str:
         """剥离前缀与 zssm 触发词，返回其后的内容；无内容则返回空串。"""
         if not isinstance(text, str):
             return ""
         t = text.strip()
-        m = re.match(r"^[\s/!！。\.、，\-]*zssm(?:\s+(.+))?$", t, re.I)
+        hyw_enabled = self._get_conf_bool(HE_YI_WEI_ENABLE_KEY, True)
+        pattern = r"^[\s/!！。\.、，\-]*(?:zssm"
+        if hyw_enabled:
+            pattern += r"|hyw|何意味"
+        pattern += r")(?:\s+(.+))?$"
+        m = re.match(pattern, t, re.I)
         if not m:
             return ""
         content = (m.group(1) or "").strip()
@@ -1429,7 +1431,7 @@ class ZssmExplain(Star):
             except Exception:
                 pass
 
-    @filter.command("zssm", alias={"知识说明", "解释"})
+    @filter.command("zssm", alias={"知识说明", "解释", "hyw", "何意味"})
     async def zssm(self, event: AstrMessageEvent):
         """解释被回复消息：/zssm 或关键词触发；若携带内容则直接解释该内容，否则按回复消息逻辑。"""
         cleanup_paths: List[str] = []
@@ -1441,6 +1443,14 @@ class ZssmExplain(Star):
                 pass
             if self._already_handled(event):
                 return
+
+            if not self._get_conf_bool(HE_YI_WEI_ENABLE_KEY, True):
+                try:
+                    text_str = event.get_message_str()
+                except Exception:
+                    text_str = ""
+                if text_str and re.match(r"^\s*/\s*(hyw|何意味)(\s|$)", text_str, re.I):
+                    return
 
             inline = self._get_inline_content(event)
             enable_url = self._get_conf_bool(
@@ -1516,11 +1526,15 @@ class ZssmExplain(Star):
             at_me = self._chain_has_at_me(chain, self_id)
         except Exception:
             at_me = False
+
+        hyw_enabled = self._get_conf_bool(HE_YI_WEI_ENABLE_KEY, True)
+        hyw_pattern = r"|hyw|何意味" if hyw_enabled else ""
+
         if isinstance(head, str) and head.strip():
             hs = head.strip()
-            if re.match(r"^\s*/\s*zssm(\s|$)", hs, re.I):
+            if re.match(r"^\s*/\s*(zssm" + hyw_pattern + r")(\s|$)", hs, re.I):
                 return
-            if at_me and re.match(r"^zssm(\s|$)", hs, re.I):
+            if at_me and re.match(r"^(zssm" + hyw_pattern + r")(\s|$)", hs, re.I):
                 return
             if self._is_zssm_trigger(hs):
                 async for r in self.zssm(event):
@@ -1533,9 +1547,9 @@ class ZssmExplain(Star):
             text = getattr(event, "message_str", "") or ""
         if isinstance(text, str) and text.strip():
             t = text.strip()
-            if re.match(r"^\s*/\s*zssm(\s|$)", t, re.I):
+            if re.match(r"^\s*/\s*(zssm" + hyw_pattern + r")(\s|$)", t, re.I):
                 return
-            if at_me and re.match(r"^zssm(\s|$)", t, re.I):
+            if at_me and re.match(r"^(zssm" + hyw_pattern + r")(\s|$)", t, re.I):
                 return
             if self._is_zssm_trigger(t):
                 async for r in self.zssm(event):
