@@ -105,13 +105,6 @@ DEFAULT_FORWARD_VIDEO_KEYFRAME_ENABLE = True
 DEFAULT_FORWARD_VIDEO_MAX_COUNT = 2
 
 
-@register(
-    "astrbot_zssm_explain",
-    "薄暝",
-    "zssm，发送zssm来让bot解释近乎全类型的消息！",
-    "v3.9.16",
-    "https://github.com/xiaoxi68/astrbot_zssm_explain",
-)
 class ZssmExplain(Star):
     def __init__(self, context: Context, config: Optional[Dict[str, Any]] = None):
         super().__init__(context)
