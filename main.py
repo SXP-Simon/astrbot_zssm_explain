@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import asyncio
-import math
+from dataclasses import dataclass, field
+from typing import List, Tuple, Optional, Any, Dict, Set, Union
 import os
+import asyncio
 import re
 import shutil
+import math
 import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
@@ -643,30 +643,31 @@ class ZssmExplain(Star):
 
     # 文本与图片解析等通用工具已迁移至 message_utils / llm_client / video_utils 模块
 
-    def _is_zssm_trigger(self, text: str) -> bool:
+    def _is_zssm_trigger(self, text: str, is_command: bool = False) -> bool:
+        """统一触发检测逻辑。
+        is_command=True 表示带有前缀或 @Bot 的显式调用。
+        """
         if not isinstance(text, str):
             return False
         t = text.strip()
         hyw_enabled = self._get_conf_bool(HE_YI_WEI_ENABLE_KEY, True)
-        # 忽略常见前缀：/ ! ！ . 。 、 ， - 等，匹配起始处 zssm
-        pattern = r"^[\s/!！。\.、，\-]*(zssm"
-        if hyw_enabled:
-            pattern += r"|hyw|何意味"
-        pattern += r")(\s|$)"
-        if re.match(pattern, t, re.I):
-            return True
-        return False
+        kw_enabled = self._get_conf_bool(KEYWORD_ZSSM_ENABLE_KEY, True)
 
-    def _safe_get_chain(self, event: AstrMessageEvent) -> list[object]:
-        """安全地获取消息链。"""
-        try:
-            return event.get_messages()
-        except Exception:
-            return (
-                getattr(event.message_obj, "message", [])
-                if hasattr(event, "message_obj")
-                else []
-            )
+        # 1. 如果不是显式指令，且关闭了关键词触发，直接拦截
+        if not is_command and not kw_enabled:
+            return False
+
+        # 2. 正则匹配触发词
+        m = re.match(r"^[\s/!！。\.、，\-]*(zssm|hyw|何意味)(\s|$)", t, re.I)
+        if not m:
+            return False
+
+        keyword = m.group(1).lower()
+        # 3. 如果是何意味别名，但关闭了何意味开关，拦截
+        if keyword in ("hyw", "何意味") and not hyw_enabled:
+            return False
+
+        return True
 
     @staticmethod
     def _first_plain_head_text(chain: List[object]) -> str:
@@ -712,17 +713,13 @@ class ZssmExplain(Star):
             pass
         return False
 
-    def _strip_trigger_and_get_content(self, text: str) -> str:
+    @staticmethod
+    def _strip_trigger_and_get_content(text: str) -> str:
         """剥离前缀与 zssm 触发词，返回其后的内容；无内容则返回空串。"""
         if not isinstance(text, str):
             return ""
         t = text.strip()
-        hyw_enabled = self._get_conf_bool(HE_YI_WEI_ENABLE_KEY, True)
-        pattern = r"^[\s/!！。\.、，\-]*(?:zssm"
-        if hyw_enabled:
-            pattern += r"|hyw|何意味"
-        pattern += r")(?:\s+(.+))?$"
-        m = re.match(pattern, t, re.I)
+        m = re.match(r"^[\s/!！。\.、，\-]*(?:zssm|hyw|何意味)(?:\s+(.+))?$", t, re.I)
         if not m:
             return ""
         content = (m.group(1) or "").strip()
@@ -1445,6 +1442,8 @@ class ZssmExplain(Star):
     @filter.command("zssm", alias={"知识说明", "解释", "hyw", "何意味"})
     async def zssm(self, event: AstrMessageEvent):
         """解释被回复消息：/zssm 或关键词触发；若携带内容则直接解释该内容，否则按回复消息逻辑。"""
+        # 在入口处调用 event.should_call_llm(True)，阻止默认 LLM 接管
+        event.should_call_llm(True)
         cleanup_paths: List[str] = []
         try:
             try:
@@ -1455,36 +1454,10 @@ class ZssmExplain(Star):
             if self._already_handled(event):
                 return
 
-            kw_enabled = self._get_conf_bool(KEYWORD_ZSSM_ENABLE_KEY, True)
-            hyw_enabled = self._get_conf_bool(HE_YI_WEI_ENABLE_KEY, True)
-
-            chain = self._safe_get_chain(event)
-            head_text = self._first_plain_head_text(chain)
-            if head_text:
-                hs = head_text.strip()
-                # 1. 何意味总开关：若关闭且当前是 hyw/何意味 触发，则拦截
-                if not hyw_enabled and re.match(
-                    r"^[\s/!！。\.、，\-]*(hyw|何意味)(\s|$)", hs, re.I
-                ):
-                    return
-                # 2. 关键词自动触发开关：若关闭且当前是纯文本触发（无前缀符号且非 @Bot）
-                if not kw_enabled:
-                    # 检查是否有显式的指令前缀符号
-                    has_prefix = bool(re.match(r"^\s*[/!！。\.、，\-]+", hs))
-                    # 检查是否 @ 了 Bot
-                    at_me = False
-                    try:
-                        self_id = event.get_self_id()
-                        at_me = self._chain_has_at_me(chain, self_id)
-                    except Exception:
-                        at_me = False
-
-                    if not has_prefix:
-                        # 对于 zssm/hyw/何意味，如果没有前缀符合则拦截（不论是否 @Bot）
-                        if re.match(
-                            r"^[\s/!！。\.、，\-]*(zssm|hyw|何意味)(\s|$)", hs, re.I
-                        ):
-                            return
+            # 如果是通过指令入口进来，检查触发词是否合法（如关闭 hyw 时拦截 /hyw）
+            head_text = self._first_plain_head_text(self._safe_get_chain(event))
+            if head_text and not self._is_zssm_trigger(head_text, is_command=True):
+                return
 
             inline = self._get_inline_content(event)
             enable_url = self._get_conf_bool(
@@ -1534,9 +1507,6 @@ class ZssmExplain(Star):
         """关键词触发：忽略常见前缀/Reply/At 等，检测首个 Plain 段的 zssm。
         避免与 /zssm 指令重复：若以 /zssm 开头则交由指令处理。
         """
-        # 配置开关：允许用户关闭正则关键词触发，仅保留 /zssm 指令。
-        if not self._get_conf_bool(KEYWORD_ZSSM_ENABLE_KEY, True):
-            return
         # 群聊权限控制：不满足条件则直接忽略
         try:
             if not self._is_group_allowed(event):
@@ -1544,7 +1514,14 @@ class ZssmExplain(Star):
         except Exception:
             pass
         # 优先使用消息链首个 Plain 段判断
-        chain = self._safe_get_chain(event)
+        try:
+            chain = event.get_messages()
+        except Exception:
+            chain = (
+                getattr(event.message_obj, "message", [])
+                if hasattr(event, "message_obj")
+                else []
+            )
         head = self._first_plain_head_text(chain)
         # 如果 @ 了 Bot 并且首个 Plain 文本是 zssm，则交由指令处理以避免重复
         at_me = False
@@ -1553,22 +1530,13 @@ class ZssmExplain(Star):
             at_me = self._chain_has_at_me(chain, self_id)
         except Exception:
             at_me = False
-
-        hyw_enabled = self._get_conf_bool(HE_YI_WEI_ENABLE_KEY, True)
-        hyw_pattern = r"|hyw|何意味" if hyw_enabled else ""
-
         if isinstance(head, str) and head.strip():
             hs = head.strip()
-            # 这里的 hs 是首个 Plain 文本块。
-            # 如果它匹配了 (zssm|hyw|何意味) 且带有显式前缀，则视为指令，由 zssm 指令处理器处理，此处跳过以避免双重响应
-            cmd_prefix_pattern = (
-                r"^\s*[/!！。\.、，\-]+(zssm" + hyw_pattern + r")(\s|$)"
-            )
-            if re.match(cmd_prefix_pattern, hs, re.I):
+            if re.match(r"^\s*/\s*(zssm|hyw|何意味)(\s|$)", hs, re.I):
                 return
-            if at_me and re.match(r"^(zssm" + hyw_pattern + r")(\s|$)", hs, re.I):
+            if at_me and re.match(r"^(zssm|hyw|何意味)(\s|$)", hs, re.I):
                 return
-            if self._is_zssm_trigger(hs):
+            if self._is_zssm_trigger(hs, is_command=at_me):
                 async for r in self.zssm(event):
                     yield r
                 return
@@ -1579,13 +1547,10 @@ class ZssmExplain(Star):
             text = getattr(event, "message_str", "") or ""
         if isinstance(text, str) and text.strip():
             t = text.strip()
-            cmd_prefix_pattern = (
-                r"^\s*[/!！。\.、，\-]+(zssm" + hyw_pattern + r")(\s|$)"
-            )
-            if re.match(cmd_prefix_pattern, t, re.I):
+            if re.match(r"^\s*/\s*(zssm|hyw|何意味)(\s|$)", t, re.I):
                 return
-            if at_me and re.match(r"^(zssm" + hyw_pattern + r")(\s|$)", t, re.I):
+            if at_me and re.match(r"^(zssm|hyw|何意味)(\s|$)", t, re.I):
                 return
-            if self._is_zssm_trigger(t):
+            if self._is_zssm_trigger(t, is_command=at_me):
                 async for r in self.zssm(event):
                     yield r
